@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -33,9 +33,6 @@
 #include "mdss_debug.h"
 #include "mdss_dsi_phy.h"
 #include "mdss_dba_utils.h"
-#ifdef CONFIG_MIPI_DSI_TC358762_DSI2DPI
-#include "mipi_tc358762_dsi2dpi.h"
-#endif
 
 #define XO_CLK_RATE	19200000
 #define CMDLINE_DSI_CTL_NUM_STRING_LEN 2
@@ -45,6 +42,13 @@ static struct mdss_dsi_data *mdss_dsi_res;
 
 #define DSI_DISABLE_PC_LATENCY 100
 #define DSI_ENABLE_PC_LATENCY PM_QOS_DEFAULT_VALUE
+
+#ifdef CONFIG_TOUCHSCREEN_FTS
+extern int focaltech_gesture_enable;
+#endif
+#ifdef CONFIG_TOUCHSCREEN_ILI2120
+extern int ilitek_gesture_enable;
+#endif
 
 static struct pm_qos_request mdss_dsi_pm_qos_request;
 
@@ -279,9 +283,6 @@ static int mdss_dsi_panel_power_off(struct mdss_panel_data *pdata)
 {
 	int ret = 0;
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
-#ifdef CONFIG_MIPI_DSI_TC358762_DSI2DPI
-	struct mdss_panel_info *pinfo = NULL;
-#endif
 
 	if (pdata == NULL) {
 		pr_err("%s: Invalid input data\n", __func__);
@@ -301,18 +302,30 @@ static int mdss_dsi_panel_power_off(struct mdss_panel_data *pdata)
 	if (mdss_dsi_pinctrl_set_state(ctrl_pdata, false))
 		pr_debug("reset disable: pinctrl not enabled\n");
 
-	ret = msm_dss_enable_vreg(
-		ctrl_pdata->panel_power_data.vreg_config,
-		ctrl_pdata->panel_power_data.num_vreg, 0);
+#ifdef CONFIG_TOUCHSCREEN_FTS
+	if (focaltech_gesture_enable == 1) {
+		ret = msm_dss_enable_vreg(
+			ctrl_pdata->panel_power_data.vreg_config,
+			ctrl_pdata->panel_power_data.num_vreg, 1);
+	} else 
+#endif
+#ifdef CONFIG_TOUCHSCREEN_ILI2120
+	if (ilitek_gesture_enable == 1) {
+		ret = msm_dss_enable_vreg(
+			ctrl_pdata->panel_power_data.vreg_config,
+			ctrl_pdata->panel_power_data.num_vreg, 1);
+	} else 
+#endif
+		{
+		ret = msm_dss_enable_vreg(
+			ctrl_pdata->panel_power_data.vreg_config,
+			ctrl_pdata->panel_power_data.num_vreg, 0);
+	}
+
 	if (ret)
 		pr_err("%s: failed to disable vregs for %s\n",
 			__func__, __mdss_dsi_pm_name(DSI_PANEL_PM));
 
-#ifdef CONFIG_MIPI_DSI_TC358762_DSI2DPI
-	pinfo = &pdata->panel_info;
-	if (pinfo->use_dsi2dpi_bridge)
-		tc358762_suspend();
-#endif
 end:
 	return ret;
 }
@@ -436,6 +449,9 @@ int mdss_dsi_panel_power_ctrl(struct mdss_panel_data *pdata,
 		pr_debug("%s: no change needed\n", __func__);
 		return 0;
 	}
+
+	if (power_state == 1)
+		gpio_direction_output(110, 1);
 
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
@@ -921,8 +937,7 @@ static ssize_t mdss_dsi_cmd_write(struct file *file, const char __user *p,
 static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 {
 	struct buf_data *pcmds = file->private_data;
-	unsigned int len;
-	int blen, i;
+	int blen, len, i;
 	char *buf, *bufp, *bp;
 	struct dsi_ctrl_hdr *dchdr;
 
@@ -965,7 +980,7 @@ static int mdss_dsi_cmd_flush(struct file *file, fl_owner_t id)
 	while (len >= sizeof(*dchdr)) {
 		dchdr = (struct dsi_ctrl_hdr *)bp;
 		dchdr->dlen = ntohs(dchdr->dlen);
-		if (dchdr->dlen > (len - sizeof(*dchdr)) || dchdr->dlen < 0) {
+		if (dchdr->dlen > len || dchdr->dlen < 0) {
 			pr_err("%s: dtsi cmd=%x error, len=%d\n",
 				__func__, dchdr->dtype, dchdr->dlen);
 			kfree(buf);
@@ -1251,10 +1266,6 @@ static int mdss_dsi_off(struct mdss_panel_data *pdata, int power_state)
 				panel_data);
 
 	panel_info = &ctrl_pdata->panel_data.panel_info;
-#ifdef CONFIG_MIPI_DSI_TC358762_DSI2DPI
-	if (panel_info->use_dsi2dpi_bridge)
-		tc358762_reset();
-#endif
 
 	pr_debug("%s+: ctrl=%pK ndx=%d power_state=%d\n",
 		__func__, ctrl_pdata, ctrl_pdata->ndx, power_state);
@@ -4136,7 +4147,6 @@ static int mdss_dsi_parse_gpio_params(struct platform_device *ctrl_pdev,
 	if (!gpio_is_valid(ctrl_pdata->intf_mux_gpio))
 		pr_debug("%s:%d, intf mux gpio not specified\n",
 						__func__, __LINE__);
-
 	return 0;
 }
 
@@ -4254,10 +4264,6 @@ int dsi_panel_device_register(struct platform_device *ctrl_pdev,
 
 	mdss_dsi_ctrl_init(&ctrl_pdev->dev, ctrl_pdata);
 	mdss_dsi_set_prim_panel(ctrl_pdata);
-
-	pinfo->use_dsi2dpi_bridge = of_property_read_bool(
-					ctrl_pdev->dev.of_node,
-					"qcom,dsi2dpi_bridge_en");
 
 	ctrl_pdata->dsi_irq_line = of_property_read_bool(
 				ctrl_pdev->dev.of_node, "qcom,dsi-irq-line");
