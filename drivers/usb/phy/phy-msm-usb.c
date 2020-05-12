@@ -1829,11 +1829,6 @@ static void msm_otg_notify_charger(struct msm_otg *motg, unsigned mA)
 			"Failed notifying %d charger type to PMIC\n",
 							motg->chg_type);
 
-	/* Override mA if charging_current_limit is required for any hardware */
-	if (pdata->charging_current_limit)
-		if (mA > pdata->charging_current_limit)
-			mA = pdata->charging_current_limit;
-
 	/*
 	 * This condition will be true when usb cable is disconnected
 	 * during bootup before enumeration. Check charger type also
@@ -2863,6 +2858,8 @@ static void msm_otg_sm_work(struct work_struct *w)
 							IDEV_CHG_MAX);
 					/* fall through */
 				case USB_SDP_CHARGER:
+					msm_otg_notify_charger(motg,
+							IDEV_CHG_MAX);
 					pm_runtime_get_sync(otg->phy->dev);
 					msm_otg_start_peripheral(otg, 1);
 					otg->phy->state =
@@ -4343,9 +4340,6 @@ struct msm_otg_platform_data *msm_otg_dt_to_pdata(struct platform_device *pdev)
 					"qcom,enable-sdp-typec-current-limit");
 	pdata->vbus_low_as_hostmode = of_property_read_bool(node,
 					"qcom,vbus-low-as-hostmode");
-
-	of_property_read_u32(node, "qcom,charging-current-limit",
-			&pdata->charging_current_limit);
 	return pdata;
 }
 
