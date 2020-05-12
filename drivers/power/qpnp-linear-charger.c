@@ -19,8 +19,6 @@
 #include <linux/spmi.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
-#include <linux/of_gpio.h>
-#include <linux/gpio.h>
 #include <linux/interrupt.h>
 #include <linux/power_supply.h>
 #include <linux/qpnp/qpnp-adc.h>
@@ -28,7 +26,6 @@
 #include <linux/bitops.h>
 #include <linux/leds.h>
 #include <linux/debugfs.h>
-#include <linux/hall_sensor.h>
 
 #define CREATE_MASK(NUM_BITS, POS) \
 	((unsigned char) (((1 << (NUM_BITS)) - 1) << (POS)))
@@ -399,7 +396,6 @@ struct qpnp_lbc_chip {
 	/* parallel-chg params */
 	struct power_supply		parallel_psy;
 	struct delayed_work		parallel_work;
-	int red_led_en;
 };
 
 static void qpnp_lbc_enable_irq(struct qpnp_lbc_chip *chip,
@@ -1110,22 +1106,16 @@ static void qpnp_lbc_chgr_led_brightness_set(struct led_classdev *cdev,
 	u8 reg;
 	int rc;
 
-	if (!gpio_is_valid(chip->red_led_en)) {
-		if (value > LED_FULL)
-			value = LED_FULL;
+	if (value > LED_FULL)
+		value = LED_FULL;
 
-		pr_debug("set the charger led brightness to value=%d\n", value);
-		reg = (value > LED_OFF) ? CHGR_LED_ON : CHGR_LED_OFF;
+	pr_debug("set the charger led brightness to value=%d\n", value);
+	reg = (value > LED_OFF) ? CHGR_LED_ON : CHGR_LED_OFF;
 
-		rc = qpnp_lbc_masked_write(chip, chip->chgr_base + LBC_CHGR_LED,
+	rc = qpnp_lbc_masked_write(chip, chip->chgr_base + LBC_CHGR_LED,
 				CHGR_LED_STAT_MASK, reg);
-		if (rc)
-			pr_err("Failed to write charger led rc=%d\n", rc);
-	} else {
-		gpio_set_value(chip->red_led_en, value);
-		pr_debug("value set on gpio %d is %d\n", chip->red_led_en,
-					gpio_get_value(chip->red_led_en));
-	}
+	if (rc)
+		pr_err("Failed to write charger led rc=%d\n", rc);
 }
 
 static enum
@@ -1136,21 +1126,18 @@ led_brightness qpnp_lbc_chgr_led_brightness_get(struct led_classdev *cdev)
 			led_cdev);
 	u8 reg_val, chgr_led_sts;
 	int rc;
-	if (!gpio_is_valid(chip->red_led_en)) {
-		rc = qpnp_lbc_read(chip, chip->chgr_base + LBC_CHGR_LED,
-				&reg_val, 1);
-		if (rc) {
-			pr_err("Failed to read charger led rc=%d\n", rc);
-			return rc;
-		}
 
-		chgr_led_sts = reg_val & CHGR_LED_STAT_MASK;
-		pr_debug("charger led brightness chgr_led_sts=%d\n",
-							 chgr_led_sts);
-		return (chgr_led_sts == CHGR_LED_ON) ? LED_FULL : LED_OFF;
+	rc = qpnp_lbc_read(chip, chip->chgr_base + LBC_CHGR_LED,
+				&reg_val, 1);
+	if (rc) {
+		pr_err("Failed to read charger led rc=%d\n", rc);
+		return rc;
 	}
 
-	return gpio_get_value(chip->red_led_en);
+	chgr_led_sts = reg_val & CHGR_LED_STAT_MASK;
+	pr_debug("charger led brightness chgr_led_sts=%d\n", chgr_led_sts);
+
+	return (chgr_led_sts == CHGR_LED_ON) ? LED_FULL : LED_OFF;
 }
 
 static int qpnp_lbc_register_chgr_led(struct qpnp_lbc_chip *chip)
@@ -1631,10 +1618,8 @@ static int qpnp_batt_power_set_property(struct power_supply *psy,
 		mutex_lock(&chip->chg_enable_lock);
 		switch (val->intval) {
 		case POWER_SUPPLY_STATUS_FULL:
-			if (chip->cfg_float_charge) {
-				chip->chg_done = true;
+			if (chip->cfg_float_charge)
 				break;
-			}
 			/* Disable charging */
 			rc = qpnp_lbc_charger_enable(chip, SOC, 0);
 			if (rc)
@@ -2421,26 +2406,6 @@ static int qpnp_charger_read_dt_props(struct qpnp_lbc_chip *chip)
 		if (rc) {
 			pr_err("Failed to read threm limits rc = %d\n", rc);
 			return rc;
-		}
-	}
-
-	chip->red_led_en = of_get_named_gpio(chip->spmi->dev.of_node,
-					"qcom,red-led-en", 0);
-	if (!gpio_is_valid(chip->red_led_en)) {
-		pr_debug("%s:%d, red_led_en gpio not specified\n",
-							 __func__, __LINE__);
-	} else {
-		rc = gpio_request(chip->red_led_en, "red_led_enable");
-		if (rc) {
-			pr_err("request red_led_en gpio failed, rc=%d\n", rc);
-		} else {
-			if (is_flip_closed())
-				rc = gpio_direction_output(chip->red_led_en, 1);
-			else
-				rc = gpio_direction_output(chip->red_led_en, 0);
-			if (rc)
-				pr_err("%s: unable to set red_led_en gpio\n",
-								 __func__);
 		}
 	}
 
