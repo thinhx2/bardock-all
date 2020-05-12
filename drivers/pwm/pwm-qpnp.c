@@ -25,6 +25,8 @@
 #include <linux/of_device.h>
 #include <linux/radix-tree.h>
 #include <linux/qpnp/pwm.h>
+#include <linux/gpio.h>
+#include <linux/of_gpio.h>
 
 #define QPNP_LPG_DRIVER_NAME	"qcom,qpnp-pwm"
 #define QPNP_LPG_CHANNEL_BASE	"qpnp-lpg-channel-base"
@@ -1488,21 +1490,6 @@ int pwm_change_mode(struct pwm_device *pwm, enum pm_pwm_mode mode)
 EXPORT_SYMBOL_GPL(pwm_change_mode);
 
 /**
- * pwm_spmi_register_writel - change pmic register
- *
- * @pwm: the PWM devices
- */
-int pwm_spmi_register_writel(struct pwm_device *pwm,
-			     u16 addr, u8 *buf, int len)
-{
-	struct qpnp_pwm_chip	*chip = qpnp_pwm_from_pwm_dev(pwm);
-
-	return spmi_ext_register_writel(chip->spmi_dev->ctrl, 0,
-			addr, buf, 1);
-}
-EXPORT_SYMBOL_GPL(pwm_spmi_register_writel);
-
-/**
  * pwm_config_period - change PWM period
  *
  * @pwm: the PWM device
@@ -2101,7 +2088,11 @@ static int qpnp_pwm_probe(struct spmi_device *spmi)
 {
 	struct qpnp_pwm_chip	*pwm_chip;
 	int			rc;
-
+#ifdef CONFIG_MSM8953_PRODUCT
+#define IS_BARDOCK_BEFORE_DVT2() ((gpio_get_value(127) == 0) && (gpio_get_value(128) == 1))
+	if (!IS_BARDOCK_BEFORE_DVT2())
+		return 0;
+#endif
 	pwm_chip = kzalloc(sizeof(*pwm_chip), GFP_KERNEL);
 	if (pwm_chip == NULL) {
 		pr_err("kzalloc() failed.\n");

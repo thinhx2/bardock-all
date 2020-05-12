@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, 2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -213,7 +213,6 @@ static struct qpnp_vadc_scale_fn vadc_scale_fn[] = {
 	[SCALE_THERM_100K_PULLUP] = {qpnp_adc_scale_therm_pu2},
 	[SCALE_THERM_150K_PULLUP] = {qpnp_adc_scale_therm_pu1},
 	[SCALE_QRD_BATT_THERM] = {qpnp_adc_scale_qrd_batt_therm},
-	[SCALE_XP3_BATT_THERM] = {qpnp_adc_scale_xp3_batt_therm},
 	[SCALE_QRD_SKUAA_BATT_THERM] = {qpnp_adc_scale_qrd_skuaa_batt_therm},
 	[SCALE_SMB_BATT_THERM] = {qpnp_adc_scale_smb_batt_therm},
 	[SCALE_QRD_SKUG_BATT_THERM] = {qpnp_adc_scale_qrd_skug_batt_therm},
@@ -223,6 +222,7 @@ static struct qpnp_vadc_scale_fn vadc_scale_fn[] = {
 	[SCALE_QRD_SKUC_BATT_THERM] = {qpnp_adc_scale_qrd_skuc_batt_therm},
 	[SCALE_QRD_SKUE_BATT_THERM] = {qpnp_adc_scale_qrd_skue_batt_therm},
 	[SCALE_PMI_CHG_TEMP] = {qpnp_adc_scale_pmi_chg_temp},
+	[SCALE_THERM_390K_PULLUP] = {qpnp_adc_scale_therm_pu3},
 };
 
 static struct qpnp_vadc_rscale_fn adc_vadc_rscale_fn[] = {
@@ -2114,6 +2114,11 @@ recalibrate:
 
 	if ((qpnp_vadc_channel_post_scaling_calib_check(vadc, channel)) < 0)
 		pr_debug("Post scaling calib type not updated\n");
+
+#ifdef CONFIG_MSM8953_PRODUCT
+	if(vadc->adc->adc_channels[dt_index].channel_num == 17)
+		scale_type = SCALE_THERM_390K_PULLUP;
+#endif
 
 	vadc_scale_fn[scale_type].chan(vadc, result->adc_code,
 		vadc->adc->adc_prop, vadc->adc->amux_prop->chan_prop, result);
